@@ -36,6 +36,42 @@ class ClusterStatusIn(BaseModel):
     online: bool
 
 
+class BatchDashboardIn(BaseModel):
+    device_ids: list[str] | None = None
+    cluster_scope: list[str] | None = None
+
+
+def _conflict_dict(c) -> dict:
+    return {
+        "device_id": c.device_id,
+        "seq": c.seq,
+        "version_count": c.version_count,
+        "cluster_ids": list(c.cluster_ids),
+        "versions": [
+            {
+                "cluster_id": v.cluster_id,
+                "timestamp": v.timestamp,
+                "metric": v.metric,
+                "value": v.value,
+                "sample_rate": v.sample_rate,
+            }
+            for v in c.versions
+        ],
+    }
+
+
+def _query_result_dict(result) -> dict:
+    return {
+        "stats": asdict(result.stats) if result.stats else None,
+        "clusters_total": result.clusters_total,
+        "clusters_online": result.clusters_online,
+        "clusters_missing": list(result.clusters_missing),
+        "complete": result.complete,
+        "has_conflicts": result.has_conflicts,
+        "conflicts": [_conflict_dict(c) for c in result.conflicts],
+    }
+
+
 @app.get("/")
 def read_root():
     return {"service": "edge-telemetry-federation"}
@@ -82,13 +118,30 @@ def set_cluster_status(cluster_id: str, body: ClusterStatusIn):
 
 @app.get("/devices/{device_id}/stats")
 def device_stats(device_id: str):
-    result = federation.query_device(device_id)
+    return _query_result_dict(federation.query_device(device_id))
+
+
+@app.post("/dashboard/query")
+def dashboard_query(body: BatchDashboardIn):
+    try:
+        dash = federation.query_devices(
+            device_ids=body.device_ids,
+            cluster_scope=body.cluster_scope,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
-        "stats": asdict(result.stats) if result.stats else None,
-        "clusters_total": result.clusters_total,
-        "clusters_online": result.clusters_online,
-        "clusters_missing": list(result.clusters_missing),
-        "complete": result.complete,
+        "devices_total": dash.devices_total,
+        "devices_with_data": dash.devices_with_data,
+        "devices_with_conflicts": dash.devices_with_conflicts,
+        "complete": dash.complete,
+        "clusters_missing": list(dash.clusters_missing),
+        "total_record_count": dash.total_record_count,
+        "total_conflicts": dash.total_conflicts,
+        "devices": {
+            device_id: _query_result_dict(q)
+            for device_id, q in sorted(dash.results.items())
+        },
     }
 
 

@@ -78,6 +78,36 @@ class DeviceStats:
     last_timestamp: float | None = None
 
 
+@dataclass(frozen=True)
+class ConflictVersion:
+    """One cluster's reported version of a conflicting (device, seq)."""
+
+    cluster_id: str
+    timestamp: float
+    metric: str
+    value: float
+    sample_rate: float
+
+
+@dataclass(frozen=True)
+class SeqConflict:
+    """A (device, seq) reported with >= 2 distinct payloads across clusters.
+
+    The collection sequence is excluded from the merged statistics; none of
+    the versions is treated as the single valid value. This is distinct from
+    a missing cluster (offline), which is reported via clusters_missing.
+    """
+
+    device_id: str
+    seq: int
+    versions: tuple[ConflictVersion, ...]   # sorted by cluster_id
+    cluster_ids: tuple[str, ...]            # sorted, distinct clusters involved
+
+    @property
+    def version_count(self) -> int:
+        return len(self.versions)
+
+
 @dataclass
 class QueryResult:
     stats: DeviceStats | None
@@ -85,3 +115,22 @@ class QueryResult:
     clusters_online: int
     clusters_missing: tuple[str, ...] = ()
     complete: bool = True
+    conflicts: tuple[SeqConflict, ...] = ()
+
+    @property
+    def has_conflicts(self) -> bool:
+        return bool(self.conflicts)
+
+
+@dataclass
+class BatchDashboardResult:
+    """Batch dashboard view over many devices plus an overall rollup."""
+
+    results: dict[str, QueryResult]
+    devices_total: int = 0
+    devices_with_data: int = 0
+    devices_with_conflicts: int = 0
+    complete: bool = True
+    clusters_missing: tuple[str, ...] = ()
+    total_record_count: int = 0
+    total_conflicts: int = 0
