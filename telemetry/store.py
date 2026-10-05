@@ -164,3 +164,22 @@ class ClusterStore:
     def device_ids(self) -> list[str]:
         with self._lock:
             return sorted({dev for (dev, _seq) in self._records})
+
+    def records_snapshot(
+        self, device_ids: "set[str] | None" = None
+    ) -> "dict[str, list[TelemetryRecord]]":
+        """Per-device stored records (seq-ordered) copied under a single lock.
+
+        A consistent snapshot of one cluster; used by the federation layer so
+        a multi-device dashboard read never sees a half-written state from a
+        concurrent ingest. When ``device_ids`` is None, covers every device.
+        """
+        out: dict[str, list[TelemetryRecord]] = {}
+        with self._lock:
+            for (dev, _seq), rec in self._records.items():
+                if device_ids is not None and dev not in device_ids:
+                    continue
+                out.setdefault(dev, []).append(rec)
+        for recs in out.values():
+            recs.sort(key=lambda r: r.seq)
+        return out

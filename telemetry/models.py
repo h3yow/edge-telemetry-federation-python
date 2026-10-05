@@ -85,3 +85,74 @@ class QueryResult:
     clusters_online: int
     clusters_missing: tuple[str, ...] = ()
     complete: bool = True
+    # Cross-cluster inconsistencies for this device: seqs that were seen with
+    # different payloads in different clusters. Such seqs are excluded from
+    # ``stats`` (never counted, never merged) and reported here instead.
+    # Distinct from ``clusters_missing`` (an offline cluster = incompleteness).
+    conflicts: tuple[SeqConflict, ...] = ()
+
+    @property
+    def has_conflicts(self) -> bool:
+        return bool(self.conflicts)
+
+
+@dataclass(frozen=True)
+class ConflictVariant:
+    """One distinct payload version of a conflicted (device_id, seq)."""
+
+    clusters: tuple[str, ...]   # clusters reporting exactly this version
+    timestamp: float
+    metric: str
+    value: float
+    sample_rate: float
+
+
+@dataclass(frozen=True)
+class SeqConflict:
+    """Same (device_id, seq) reported with different content by >=2 clusters."""
+
+    device_id: str
+    seq: int
+    clusters: tuple[str, ...]       # all clusters involved, sorted
+    version_count: int              # number of distinct payload versions
+    variants: tuple[ConflictVariant, ...]  # per-version cluster breakdown, sorted
+
+
+@dataclass
+class DeviceView:
+    """Per-device entry in a batch dashboard query."""
+
+    device_id: str
+    stats: DeviceStats | None
+    clusters_total: int
+    clusters_online: int
+    clusters_missing: tuple[str, ...] = ()
+    complete: bool = True
+    conflicts: tuple[SeqConflict, ...] = ()
+
+    @property
+    def has_conflicts(self) -> bool:
+        return bool(self.conflicts)
+
+
+@dataclass
+class DashboardSummary:
+    """Fleet-wide rollup over every device of a batch query."""
+
+    devices_total: int
+    devices_with_data: int
+    record_count: int            # clean (non-conflicted) records only
+    weighted_count: float
+    value_sum: float
+    complete_devices: int        # devices with every cluster online
+    devices_with_conflicts: int
+    conflict_seqs: int           # total conflicted seqs across devices
+    clusters_total: int
+    clusters_online: int
+    clusters_missing: tuple[str, ...] = ()
+
+
+@dataclass
+class BatchQueryResult:
+    devices: tuple[DeviceView, ...]
+    summary: DashboardSummary

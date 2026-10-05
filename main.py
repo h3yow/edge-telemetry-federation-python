@@ -36,6 +36,25 @@ class ClusterStatusIn(BaseModel):
     online: bool
 
 
+class DashboardQueryIn(BaseModel):
+    # Pick exactly one scope; neither means every device in the federation.
+    device_ids: list[str] | None = None
+    cluster_ids: list[str] | None = None
+
+
+def _view_dict(view) -> dict:
+    return {
+        "device_id": view.device_id,
+        "stats": asdict(view.stats) if view.stats else None,
+        "clusters_total": view.clusters_total,
+        "clusters_online": view.clusters_online,
+        "clusters_missing": list(view.clusters_missing),
+        "complete": view.complete,
+        "has_conflicts": view.has_conflicts,
+        "conflicts": [asdict(c) for c in view.conflicts],
+    }
+
+
 @app.get("/")
 def read_root():
     return {"service": "edge-telemetry-federation"}
@@ -89,6 +108,28 @@ def device_stats(device_id: str):
         "clusters_online": result.clusters_online,
         "clusters_missing": list(result.clusters_missing),
         "complete": result.complete,
+        "has_conflicts": result.has_conflicts,
+        "conflicts": [asdict(c) for c in result.conflicts],
+    }
+
+
+@app.post("/devices/query")
+def query_devices(body: DashboardQueryIn):
+    if body.device_ids is not None and body.cluster_ids is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="provide either device_ids or cluster_ids, not both",
+        )
+    try:
+        result = federation.query_devices(
+            device_ids=body.device_ids,
+            cluster_ids=body.cluster_ids,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "devices": [_view_dict(v) for v in result.devices],
+        "summary": asdict(result.summary),
     }
 
 
